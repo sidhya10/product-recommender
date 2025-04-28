@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Product Recommender App</title>
+  <title>Product Recommender App with AI</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.5/babel.min.js"></script>
@@ -45,7 +45,16 @@
         preferences: [],
         stage: 'initial'
       });
+      // Track which questions have been asked to prevent loops
+      const [askedQuestions, setAskedQuestions] = useState({
+        budget: false,
+        features: false
+      });
       const messagesEndRef = useRef(null);
+
+      // OpenAI API configuration
+      const OPENAI_API_KEY = "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";
+      const API_BASE_URL = "https://api.openai.com/v1";
 
       // Sample product database
       const products = [
@@ -146,7 +155,108 @@
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, [messages]);
 
-      // Process user message and generate response
+      // Improved OpenAI API function with better error handling
+      const callOpenAI = async (prompt, context) => {
+        console.log("Calling OpenAI API with prompt:", prompt);
+
+        try {
+          // Create a backup plan in case the API call fails
+          const backupResponses = {
+            laptop: "Great choice! Let's find you the perfect laptop. Could you tell me your budget range?",
+            smartphone: "Smartphones are essential these days! What's your budget for this purchase?",
+            headphones: "I'd be happy to help you find headphones. What's your budget range?",
+            budget: `Thanks for sharing your budget. What features are most important to you in a ${context.category}?`,
+            preferences: `I understand you're looking for a ${context.category} with those features. Let me find some options for you.`,
+            feedback: "Thanks for your feedback! Is there anything specific you'd like to know about these recommendations?"
+          };
+
+          const requestBody = {
+            model: 'gpt-3.5-turbo',
+            messages: [
+              {
+                role: 'system',
+                content: `You are a product recommendation assistant. You help users find the perfect tech product based on their needs.
+                          The available product categories are: laptops, smartphones, and headphones.
+                          Current conversation context: ${JSON.stringify(context)}`
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 150
+          };
+
+          console.log("Request payload:", requestBody);
+
+          const response = await fetch(`${API_BASE_URL}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${OPENAI_API_KEY}`
+            },
+            body: JSON.stringify(requestBody)
+          });
+
+          console.log("API Response status:", response.status);
+
+          // Handle non-OK responses
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error("API Error:", errorText);
+
+            // Try to parse error as JSON if possible
+            let errorJson = {};
+            try {
+              errorJson = JSON.parse(errorText);
+            } catch (e) {
+              console.log("Error text is not valid JSON");
+            }
+
+            // Fall back to hardcoded responses based on context
+            if (context.stage === 'initial' && context.category) {
+              return backupResponses[context.category];
+            } else if (context.stage === 'budget') {
+              return backupResponses.budget;
+            } else if (context.stage === 'preferences') {
+              return backupResponses.preferences;
+            } else if (context.stage === 'feedback') {
+              return backupResponses.feedback;
+            }
+
+            // Default fallback
+            throw new Error(`API call failed: ${response.status} - ${errorJson?.error?.message || 'Unknown error'}`);
+          }
+
+          const data = await response.json();
+          console.log("API Response successful:", data);
+
+          // Verify the response structure before returning
+          if (data?.choices?.[0]?.message?.content) {
+            return data.choices[0].message.content;
+          }
+
+          throw new Error("Invalid response structure from API");
+        } catch (error) {
+          console.error("Error calling OpenAI API:", error);
+
+          // Use rules-based fallback responses instead of AI for this request
+          if (prompt.includes("budget") || context.stage === 'budget') {
+            return "What's your budget range for this purchase? This will help me find options that fit your needs.";
+          } else if (prompt.includes("features") || context.stage === 'preferences') {
+            return `What features or qualities are most important to you in a ${context.category || 'product'}? For example, battery life, performance, etc.`;
+          } else if (context.stage === 'initial') {
+            return "I'm looking forward to helping you find the perfect tech product. Are you interested in a laptop, smartphone, or headphones?";
+          } else if (context.stage === 'feedback') {
+            return "Thank you for your feedback! Is there anything specific you'd like to know about these recommendations?";
+          }
+
+          return "I'll help you find the perfect product based on your needs. To get started, what type of product are you looking for?";
+        }
+      };
+
+      // Improved process message function that's more resilient to API failures and avoids loops
       const processMessage = async (userMessage) => {
         // Add user message to chat
         setMessages(prevMessages => [...prevMessages, { role: 'user', content: userMessage }]);
@@ -154,17 +264,19 @@
         // Simulate AI processing
         setIsTyping(true);
 
-        // Wait a moment to simulate processing time
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Generate AI response based on context
-        let response;
-        let newContext = { ...productContext };
-
         // Parse user input for intent
         const lowercaseMessage = userMessage.toLowerCase();
 
-        // STAGE 1: Initial intent detection
+        // Current context state for AI
+        let newContext = { ...productContext };
+        let useAI = false;
+        let aiPrompt = "";
+        let response = "";
+
+        // Fix for the specific issue where the budget stage is skipped
+// In the processMessage function, modify the initial stage logic:
+
+// STAGE 1: Initial intent detection
         if (productContext.stage === 'initial') {
           // Check for product category
           const categoryKeywords = {
@@ -181,94 +293,136 @@
           });
 
           if (detectedCategory) {
+            // Set category and ENSURE we move to budget stage
             newContext.category = detectedCategory;
-            newContext.stage = 'budget';
-            response = `Great! I'll help you find the perfect ${detectedCategory}. What's your budget range?`;
+            newContext.stage = 'budget'; // Make sure this is set to 'budget' not 'preferences'
+
+            // Reset asked questions for new conversation
+            setAskedQuestions({budget: false, features: false});
+
+            // Use AI to respond with a budget question
+            useAI = true;
+            aiPrompt = `The user is looking for a ${detectedCategory}. Ask them specifically about their budget range for this purchase. For example: "What's your budget for this ${detectedCategory}?" or "How much are you looking to spend on this ${detectedCategory}?"`;
+
+            // If API fails, use a backup response that explicitly asks about budget
+            response = `Great! I'll help you find the perfect ${detectedCategory}. What's your budget range for this purchase?`;
           } else {
-            response = "I'm not sure what product you're looking for. Could you specify if you're interested in a laptop, smartphone, headphones, or something else?";
+            // Use AI to understand the request better
+            useAI = true;
+            aiPrompt = `The user said: "${userMessage}". They might be looking for a tech product. Try to determine what category of product they're looking for (laptop, smartphone, or headphones). If unclear, ask them to specify what type of tech product they need.`;
           }
         }
 
-        // STAGE 2: Budget collection
+// Then make sure the "budget" stage properly transitions to "preferences"
+// and doesn't skip directly to "recommendation"
+
+// Improved budget detection in the budget stage
         else if (productContext.stage === 'budget') {
-          // Extract budget information
+          // Extract budget information with improved pattern matching
           const budgetRegex = /\$?(\d+)(?:\s*-\s*\$?(\d+))?/;
           const budgetMatch = lowercaseMessage.match(budgetRegex);
 
+          // Also check for budget keywords
+          const hasBudgetKeywords = lowercaseMessage.includes('budget') ||
+                  lowercaseMessage.includes('price') ||
+                  lowercaseMessage.includes('cost') ||
+                  lowercaseMessage.includes('spend') ||
+                  lowercaseMessage.includes('dollar');
+
+          // Debug
+          console.log("Checking budget in:", lowercaseMessage);
+          console.log("Budget match:", budgetMatch);
+
           if (budgetMatch) {
+            console.log("Budget match found:", budgetMatch);
+            // Extract budget from regex match
             if (budgetMatch[2]) {
               // Range provided
               const minBudget = parseInt(budgetMatch[1]);
               const maxBudget = parseInt(budgetMatch[2]);
               newContext.budget = { min: minBudget, max: maxBudget };
+              console.log(`Budget range set: $${minBudget}-$${maxBudget}`);
             } else {
               // Single value provided, treat as maximum
               const maxBudget = parseInt(budgetMatch[1]);
               newContext.budget = { max: maxBudget };
+              console.log(`Budget max set: $${maxBudget}`);
             }
 
+            // IMPORTANT: Always move to preferences stage when budget is detected
             newContext.stage = 'preferences';
-            response = `Got it, your budget is around ${newContext.budget.min ? `$${newContext.budget.min} to $${newContext.budget.max}` : `up to $${newContext.budget.max}`}. What features or qualities are important to you for this ${newContext.category}? (For example: battery life, performance, portability, etc.)`;
-          } else {
-            response = `I didn't catch your budget. Could you provide a price range for the ${newContext.category} you're looking for?`;
+            console.log("Moving to preferences stage");
+
+            // Use AI for response
+            useAI = true;
+            aiPrompt = `The user has specified a budget of ${newContext.budget.min ? `$${newContext.budget.min} to $${newContext.budget.max}` : `up to $${newContext.budget.max}`} for a ${newContext.category}. Ask them about what features or qualities are important to them.`;
+
+            // Fallback response if AI fails
+            response = `Thanks for sharing your budget. What features are most important to you in a ${newContext.category}?`;
+          }
+          // Check if they've already been asked about budget and are mentioning budget terms
+          else if (askedQuestions.budget && hasBudgetKeywords) {
+            console.log("User mentioned budget terms but no specific amount");
+            // Set a reasonable default if they're talking about budget but not giving specific numbers
+            newContext.budget = { max: 500 }; // Default budget
+            newContext.stage = 'preferences';
+
+            useAI = true;
+            aiPrompt = `The user mentioned budget but didn't specify an exact amount for their ${newContext.category}. Ask them what features they're looking for.`;
+
+            response = `Thanks for that information. What specific features are you looking for in a ${newContext.category}?`;
+          }
+          // Allow switching product category from budget stage
+          else if (lowercaseMessage.includes('laptop') ||
+                  lowercaseMessage.includes('phone') ||
+                  lowercaseMessage.includes('headphone')) {
+            console.log("User wants to switch product category");
+
+            // Detect new category
+            if (lowercaseMessage.includes('laptop')) {
+              newContext.category = 'laptop';
+            } else if (lowercaseMessage.includes('phone')) {
+              newContext.category = 'smartphone';
+            } else if (lowercaseMessage.includes('headphone') || lowercaseMessage.includes('earphone')) {
+              newContext.category = 'headphones';
+            }
+
+            // Keep in budget stage with new category
+            newContext.stage = 'budget';
+
+            useAI = true;
+            aiPrompt = `The user now wants to look for a ${newContext.category} instead. Ask them about their budget for this ${newContext.category}.`;
+
+            response = `Great! I'll help you find the perfect ${newContext.category}. What's your budget range for this purchase?`;
+          }
+          else {
+            // First time asking about budget
+            setAskedQuestions(prev => ({...prev, budget: true}));
+
+            useAI = true;
+            aiPrompt = `The user said: "${userMessage}" when asked about their budget for a ${newContext.category}. Ask them again for a specific budget range with dollar amounts.`;
+
+            response = `I need a specific budget range to help you find the right ${newContext.category}. Could you please give me an amount, like "$100-$200" or "up to $300"?`;
           }
         }
-
-        // STAGE 3: Preferences collection
+        // STAGE 3: Preferences collection with loop prevention
         else if (productContext.stage === 'preferences') {
-          // Keywords to look for based on category
-          const preferenceKeywords = {
-            'laptop': {
-              'performance': ['performance', 'fast', 'powerful', 'speed', 'processing'],
-              'portability': ['portable', 'light', 'lightweight', 'thin', 'travel'],
-              'battery': ['battery', 'long-lasting', 'all day'],
-              'display': ['screen', 'display', 'retina', '4k', 'resolution'],
-              'storage': ['storage', 'ssd', 'hard drive', 'space'],
-              'gaming': ['gaming', 'game', 'fps', 'graphics card', 'gpu']
-            },
-            'smartphone': {
-              'camera': ['camera', 'photo', 'photography', 'pictures', 'selfie'],
-              'battery': ['battery', 'long-lasting', 'all day'],
-              'display': ['screen', 'display', 'amoled', 'lcd', 'oled'],
-              'storage': ['storage', 'memory', 'space'],
-              'performance': ['performance', 'fast', 'speed', 'powerful']
-            },
-            'headphones': {
-              'sound': ['sound', 'audio', 'quality', 'bass'],
-              'noise': ['noise cancellation', 'anc', 'quiet', 'silence'],
-              'battery': ['battery', 'long-lasting'],
-              'comfort': ['comfort', 'comfortable', 'fit'],
-              'wireless': ['wireless', 'bluetooth', 'cordless']
-            }
-          };
+          // Set asked flag
+          setAskedQuestions(prev => ({...prev, features: true}));
 
-          const categoryPreferences = preferenceKeywords[newContext.category] || {};
-          const detectedPreferences = [];
+          // Already asked about features, move to recommendation stage regardless of input
+          // Store any preferences mentioned
+          newContext.preferences = [...productContext.preferences, userMessage];
+          newContext.stage = 'recommendation';
 
-          Object.entries(categoryPreferences).forEach(([preference, keywords]) => {
-            if (keywords.some(keyword => lowercaseMessage.includes(keyword))) {
-              detectedPreferences.push(preference);
-            }
-          });
+          // Use AI to understand preferences
+          useAI = true;
+          aiPrompt = `The user is looking for a ${newContext.category} with a budget of ${newContext.budget.min ? `$${newContext.budget.min}-$${newContext.budget.max}` : `up to $${newContext.budget.max}`}. They said: "${userMessage}" about their preferences. Extract key features they're looking for and tell them you'll find some recommendations.`;
 
-          if (detectedPreferences.length > 0) {
-            newContext.preferences = [...productContext.preferences, ...detectedPreferences];
-            newContext.stage = 'recommendation';
-            response = `Thanks for sharing your preferences! Based on what you've told me, I'll find some ${newContext.category} options that match your needs.`;
-          } else {
-            // If no preferences detected but we need to move forward
-            if (lowercaseMessage.length > 10) {
-              newContext.stage = 'recommendation';
-              newContext.preferences = [...productContext.preferences, 'general'];
-              response = `Thanks for the information! Let me find some ${newContext.category} options that might work for you.`;
-            } else {
-              response = `Could you tell me more about what features are important to you in a ${newContext.category}?`;
-            }
-          }
-        }
+          // Wait for AI response before generating recommendations
+          response = await callOpenAI(aiPrompt, newContext);
+          setMessages(prevMessages => [...prevMessages, { role: 'assistant', content: response }]);
 
-        // Generate recommendations
-        if (newContext.stage === 'recommendation') {
           // Filter products based on category
           let filteredProducts = products.filter(p => p.category === newContext.category);
 
@@ -281,80 +435,104 @@
             }
           }
 
-          // Sort by relevance to preferences
-          if (newContext.preferences.length > 0) {
-            filteredProducts = filteredProducts.sort((a, b) => {
-              let scoreA = 0;
-              let scoreB = 0;
+          // Get relevant keywords from user preferences
+          const preferencesText = newContext.preferences.join(' ').toLowerCase();
 
-              // Simple scoring based on features and preferences
-              newContext.preferences.forEach(pref => {
-                if (a.features.some(f => f.toLowerCase().includes(pref.toLowerCase()))) scoreA += 1;
-                if (b.features.some(f => f.toLowerCase().includes(pref.toLowerCase()))) scoreB += 1;
-              });
+          // Score products based on how well they match preferences
+          filteredProducts = filteredProducts.map(product => {
+            let score = 0;
 
-              return scoreB - scoreA;
+            // Check features
+            product.features.forEach(feature => {
+              const featureLower = feature.toLowerCase();
+              if (preferencesText.includes(featureLower)) {
+                // Higher score for exact matches
+                score += 2;
+              }
             });
-          }
+
+            // Check idealFor
+            product.idealFor.forEach(idealFor => {
+              if (preferencesText.includes(idealFor.toLowerCase())) {
+                score += 1;
+              }
+            });
+
+            return { ...product, score };
+          }).sort((a, b) => {
+            // Sort by score first, then by rating if scores are equal
+            if (b.score !== a.score) {
+              return b.score - a.score;
+            }
+            return b.rating - a.rating;
+          });
 
           // Take top 3 recommendations
           const recommendations = filteredProducts.slice(0, 3);
 
           if (recommendations.length > 0) {
             // Create recommendations message
-            response = `Based on your preferences, here are my top recommendations:`;
+            setTimeout(() => {
+              setMessages(prevMessages => [
+                ...prevMessages,
+                { role: 'assistant', content: 'Based on your preferences, here are my top recommendations:' },
+                { role: 'assistant', content: '', recommendations }
+              ]);
 
-            // Add recommendation card
-            setMessages(prevMessages => [
-              ...prevMessages,
-              { role: 'assistant', content: response },
-              { role: 'assistant', content: '', recommendations }
-            ]);
+              // Reset context for new recommendations
+              setProductContext({
+                category: null,
+                budget: null,
+                preferences: [],
+                stage: 'feedback'
+              });
+              // Also reset asked questions for new conversation
+              setAskedQuestions({budget: false, features: false});
+              setIsTyping(false);
+            }, 2000); // Delay to simulate processing time
 
-            // Reset context for new recommendations
-            newContext = {
-              category: null,
-              budget: null,
-              preferences: [],
-              stage: 'feedback'
-            };
-
-            setProductContext(newContext);
-            setIsTyping(false);
             return;
           } else {
             response = `I couldn't find any ${newContext.category} that match your criteria. Would you like to try with a different budget or category?`;
             newContext.stage = 'initial';
+            // Reset asked questions for new search
+            setAskedQuestions({budget: false, features: false});
+            useAI = false;
           }
         }
-
         // STAGE 4: Handle feedback
         else if (productContext.stage === 'feedback') {
-          const positiveKeywords = ['like', 'good', 'great', 'excellent', 'perfect', 'love', 'nice', 'yes', 'thanks'];
-          const negativeKeywords = ['don\'t like', 'not good', 'too expensive', 'dislike', 'no', 'not what', 'different'];
+          // Check for request to start over
+          if (lowercaseMessage.includes('new search') ||
+                  lowercaseMessage.includes('start over') ||
+                  lowercaseMessage.includes('different') ||
+                  lowercaseMessage.includes('something else')) {
 
-          const isPositive = positiveKeywords.some(keyword => lowercaseMessage.includes(keyword));
-          const isNegative = negativeKeywords.some(keyword => lowercaseMessage.includes(keyword));
+            newContext = {
+              category: null,
+              budget: null,
+              preferences: [],
+              stage: 'initial'
+            };
 
-          if (isPositive) {
-            response = "I'm glad you like the recommendations! Is there anything specific you'd like to know about any of these products?";
-          } else if (isNegative) {
-            response = "I'm sorry these weren't quite right. Could you tell me what you're looking for differently, and I'll find better options?";
-            newContext.stage = 'initial';
+            // Reset asked questions for new search
+            setAskedQuestions({budget: false, features: false});
+
+            response = "I'd be happy to help you find something else! What type of product are you looking for?";
+            useAI = false;
           } else {
-            // Check if it's a question about a specific product
-            const productNames = products.map(p => p.name.toLowerCase());
-            const mentionedProduct = productNames.find(name => lowercaseMessage.includes(name.toLowerCase()));
-
-            if (mentionedProduct) {
-              const product = products.find(p => p.name.toLowerCase() === mentionedProduct);
-              response = `The ${product.name} is a great choice! It features ${product.features.join(', ')}. It's particularly good for ${product.idealFor.join(', ')}. Is there anything specific you'd like to know about it?`;
-            } else {
-              response = "Would you like to see more recommendations, or shall we refine your search criteria?";
-            }
+            // Use AI to respond to feedback
+            useAI = true;
+            aiPrompt = `The user said: "${userMessage}" after receiving product recommendations. Respond to their feedback or answer questions about the recommended products. If they ask for more specific information, suggest they could refine their search criteria.`;
           }
         }
 
+        // Call OpenAI API if needed
+        if (useAI && !response) {
+          response = await callOpenAI(aiPrompt, newContext);
+        }
+
+        // Set new context and add assistant message
         setProductContext(newContext);
         setMessages(prevMessages => [...prevMessages, { role: 'assistant', content: response }]);
         setIsTyping(false);
@@ -407,7 +585,7 @@
                   {/* Header */}
                   <div className="bg-blue-600 text-white p-4 shadow-md">
                     <h1 className="text-2xl font-bold">Product AI Assistant</h1>
-                    <p className="text-sm opacity-90">Ask me about tech products and I'll help you find the perfect match</p>
+                    <p className="text-sm opacity-90">Ask me about tech products and I'll help you find the perfect match using AI</p>
                   </div>
 
                   {/* Demo buttons */}

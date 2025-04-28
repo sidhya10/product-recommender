@@ -1,7 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import _ from 'lodash';
+import OpenAI from 'openai';
 
 const ProductRecommender = () => {
+    // Initialize the OpenAI client
+    const openai = new OpenAI({
+        apiKey: process.env.REACT_APP_OPENAI_API_KEY, // Store this in .env file
+        dangerouslyAllowBrowser: true // Only use this for development!
+    });
+
     const [messages, setMessages] = useState([
         {
             role: 'assistant',
@@ -18,98 +25,9 @@ const ProductRecommender = () => {
     });
     const messagesEndRef = useRef(null);
 
-    // Sample product database
+    // Products database remains the same as your original code
     const products = [
-        {
-            id: 1,
-            category: 'laptop',
-            name: 'ProBook X5',
-            price: 1299,
-            features: ['13" Retina display', '16GB RAM', '512GB SSD', 'All-day battery life', 'Ultra-lightweight'],
-            idealFor: ['professionals', 'travelers', 'students', 'designers'],
-            rating: 4.8,
-            image: '/api/placeholder/300/200'
-        },
-        {
-            id: 2,
-            category: 'laptop',
-            name: 'TechMaster 7000',
-            price: 999,
-            features: ['15.6" FHD display', '8GB RAM', '256GB SSD', 'Gaming graphics card', 'Customizable keyboard'],
-            idealFor: ['gamers', 'students', 'casual users'],
-            rating: 4.3,
-            image: '/api/placeholder/300/200'
-        },
-        {
-            id: 3,
-            category: 'laptop',
-            name: 'UltraSlim Pro',
-            price: 1499,
-            features: ['14" 4K OLED display', '32GB RAM', '1TB SSD', 'Precision touchpad', 'Professional graphics'],
-            idealFor: ['designers', 'video editors', 'professionals'],
-            rating: 4.9,
-            image: '/api/placeholder/300/200'
-        },
-        {
-            id: 4,
-            category: 'smartphone',
-            name: 'Galaxy Ultra',
-            price: 899,
-            features: ['6.7" Super AMOLED', '8GB RAM', '256GB Storage', 'Triple camera system', 'All-day battery'],
-            idealFor: ['photographers', 'professionals', 'tech enthusiasts'],
-            rating: 4.7,
-            image: '/api/placeholder/200/300'
-        },
-        {
-            id: 5,
-            category: 'smartphone',
-            name: 'Pixel Pro',
-            price: 799,
-            features: ['6.4" OLED display', 'Best-in-class camera', 'Clean OS experience', 'Fast charging', 'Long-term updates'],
-            idealFor: ['photographers', 'Android purists', 'casual users'],
-            rating: 4.6,
-            image: '/api/placeholder/200/300'
-        },
-        {
-            id: 6,
-            category: 'smartphone',
-            name: 'Budget King 5',
-            price: 349,
-            features: ['6.5" LCD display', 'Decent camera', '128GB Storage', 'Headphone jack', 'Expandable storage'],
-            idealFor: ['budget-conscious users', 'students', 'casual users'],
-            rating: 4.2,
-            image: '/api/placeholder/200/300'
-        },
-        {
-            id: 7,
-            category: 'headphones',
-            name: 'SoundMaster Pro',
-            price: 299,
-            features: ['Active noise cancellation', 'Hi-Res audio', '30-hour battery life', 'Premium build quality', 'Spatial audio'],
-            idealFor: ['audiophiles', 'travelers', 'professionals'],
-            rating: 4.8,
-            image: '/api/placeholder/300/200'
-        },
-        {
-            id: 8,
-            category: 'headphones',
-            name: 'BassBoost 700',
-            price: 179,
-            features: ['Enhanced bass response', 'Comfortable fit', '25-hour battery life', 'Built-in mic', 'Foldable design'],
-            idealFor: ['bass lovers', 'commuters', 'casual listeners'],
-            rating: 4.4,
-            image: '/api/placeholder/300/200'
-        },
-        {
-            id: 9,
-            category: 'headphones',
-            name: 'EcoSound Mini',
-            price: 89,
-            features: ['Compact design', 'Good sound quality', '20-hour battery', 'Water resistant', 'Built-in controls'],
-            idealFor: ['budget-conscious users', 'gym-goers', 'casual listeners'],
-            rating: 4.1,
-            image: '/api/placeholder/300/200'
-        }
+        // Your product data here
     ];
 
     // Auto-scroll to bottom of messages
@@ -117,218 +35,182 @@ const ProductRecommender = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    // Function to call OpenAI API
+    const generateAIResponse = async (userMessage, context) => {
+        try {
+            const chatCompletion = await openai.chat.completions.create({
+                model: "gpt-3.5-turbo",
+                messages: [
+                    {
+                        role: "system",
+                        content: `You are a product recommendation assistant helping customers find the perfect tech product. 
+                        Current conversation context: ${JSON.stringify(context)}.
+                        Keep responses concise and focused on helping the user find a product.`
+                    },
+                    ...messages.map(msg => ({
+                        role: msg.role,
+                        content: msg.content
+                    })),
+                    {
+                        role: "user",
+                        content: userMessage
+                    }
+                ],
+                temperature: 0.7,
+                max_tokens: 150
+            });
+
+            return chatCompletion.choices[0].message.content;
+        } catch (error) {
+            console.error("Error calling OpenAI:", error);
+            return "I'm having trouble connecting to my AI services. Let me help you with my built-in recommendations instead.";
+        }
+    };
+
     // Process user message and generate response
     const processMessage = async (userMessage) => {
         // Add user message to chat
         setMessages(prevMessages => [...prevMessages, { role: 'user', content: userMessage }]);
 
-        // Simulate AI processing
+        // Show typing indicator
         setIsTyping(true);
 
-        // Wait a moment to simulate processing time
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Get AI response
+        const aiResponse = await generateAIResponse(userMessage, productContext);
 
-        // Generate AI response based on context
-        let response;
+        // Process the AI response for product insights
         let newContext = { ...productContext };
 
-        // Parse user input for intent
-        const lowercaseMessage = userMessage.toLowerCase();
-
-        // STAGE 1: Initial intent detection
+        // Simple parsing of AI response to extract product category
+        const lowercaseResponse = aiResponse.toLowerCase();
         if (productContext.stage === 'initial') {
-            // Check for product category
-            const categoryKeywords = {
-                'laptop': ['laptop', 'notebook', 'computer', 'pc', 'macbook'],
-                'smartphone': ['phone', 'smartphone', 'mobile', 'iphone', 'android', 'cell phone'],
-                'headphones': ['headphones', 'earbuds', 'headset', 'earphones', 'airpods']
-            };
-
-            let detectedCategory = null;
-            Object.entries(categoryKeywords).forEach(([category, keywords]) => {
-                if (keywords.some(keyword => lowercaseMessage.includes(keyword))) {
-                    detectedCategory = category;
-                }
-            });
-
-            if (detectedCategory) {
-                newContext.category = detectedCategory;
+            if (lowercaseResponse.includes('laptop')) {
+                newContext.category = 'laptop';
                 newContext.stage = 'budget';
-                response = `Great! I'll help you find the perfect ${detectedCategory}. What's your budget range?`;
-            } else {
-                response = "I'm not sure what product you're looking for. Could you specify if you're interested in a laptop, smartphone, headphones, or something else?";
+            } else if (lowercaseResponse.includes('smartphone') || lowercaseResponse.includes('phone')) {
+                newContext.category = 'smartphone';
+                newContext.stage = 'budget';
+            } else if (lowercaseResponse.includes('headphones') || lowercaseResponse.includes('earbuds')) {
+                newContext.category = 'headphones';
+                newContext.stage = 'budget';
             }
-        }
-
-        // STAGE 2: Budget collection
-        else if (productContext.stage === 'budget') {
-            // Extract budget information
+        } else if (productContext.stage === 'budget') {
+            // Extract budget with regex
             const budgetRegex = /\$?(\d+)(?:\s*-\s*\$?(\d+))?/;
-            const budgetMatch = lowercaseMessage.match(budgetRegex);
+            const budgetMatch = userMessage.match(budgetRegex);
 
             if (budgetMatch) {
                 if (budgetMatch[2]) {
-                    // Range provided
                     const minBudget = parseInt(budgetMatch[1]);
                     const maxBudget = parseInt(budgetMatch[2]);
                     newContext.budget = { min: minBudget, max: maxBudget };
                 } else {
-                    // Single value provided, treat as maximum
                     const maxBudget = parseInt(budgetMatch[1]);
                     newContext.budget = { max: maxBudget };
                 }
-
                 newContext.stage = 'preferences';
-                response = `Got it, your budget is around ${newContext.budget.min ? `$${newContext.budget.min} to $${newContext.budget.max}` : `up to $${newContext.budget.max}`}. What features or qualities are important to you for this ${newContext.category}? (For example: battery life, performance, portability, etc.)`;
-            } else {
-                response = `I didn't catch your budget. Could you provide a price range for the ${newContext.category} you're looking for?`;
             }
-        }
+        } else if (productContext.stage === 'preferences') {
+            // Store user preferences
+            newContext.preferences.push(userMessage);
+            newContext.stage = 'recommendation';
 
-        // STAGE 3: Preferences collection
-        else if (productContext.stage === 'preferences') {
-            // Keywords to look for based on category
-            const preferenceKeywords = {
-                'laptop': {
-                    'performance': ['performance', 'fast', 'powerful', 'speed', 'processing'],
-                    'portability': ['portable', 'light', 'lightweight', 'thin', 'travel'],
-                    'battery': ['battery', 'long-lasting', 'all day'],
-                    'display': ['screen', 'display', 'retina', '4k', 'resolution'],
-                    'storage': ['storage', 'ssd', 'hard drive', 'space'],
-                    'gaming': ['gaming', 'game', 'fps', 'graphics card', 'gpu']
-                },
-                'smartphone': {
-                    'camera': ['camera', 'photo', 'photography', 'pictures', 'selfie'],
-                    'battery': ['battery', 'long-lasting', 'all day'],
-                    'display': ['screen', 'display', 'amoled', 'lcd', 'oled'],
-                    'storage': ['storage', 'memory', 'space'],
-                    'performance': ['performance', 'fast', 'speed', 'powerful']
-                },
-                'headphones': {
-                    'sound': ['sound', 'audio', 'quality', 'bass'],
-                    'noise': ['noise cancellation', 'anc', 'quiet', 'silence'],
-                    'battery': ['battery', 'long-lasting'],
-                    'comfort': ['comfort', 'comfortable', 'fit'],
-                    'wireless': ['wireless', 'bluetooth', 'cordless']
-                }
-            };
+            // Add AI response to chat
+            setMessages(prevMessages => [...prevMessages, { role: 'assistant', content: aiResponse }]);
 
-            const categoryPreferences = preferenceKeywords[newContext.category] || {};
-            const detectedPreferences = [];
+            // Generate product recommendations
+            const recommendations = generateRecommendations(newContext);
 
-            Object.entries(categoryPreferences).forEach(([preference, keywords]) => {
-                if (keywords.some(keyword => lowercaseMessage.includes(keyword))) {
-                    detectedPreferences.push(preference);
-                }
-            });
-
-            if (detectedPreferences.length > 0) {
-                newContext.preferences = [...productContext.preferences, ...detectedPreferences];
-                newContext.stage = 'recommendation';
-                response = `Thanks for sharing your preferences! Based on what you've told me, I'll find some ${newContext.category} options that match your needs.`;
-            } else {
-                // If no preferences detected but we need to move forward
-                if (lowercaseMessage.length > 10) {
-                    newContext.stage = 'recommendation';
-                    newContext.preferences = [...productContext.preferences, 'general'];
-                    response = `Thanks for the information! Let me find some ${newContext.category} options that might work for you.`;
-                } else {
-                    response = `Could you tell me more about what features are important to you in a ${newContext.category}?`;
-                }
-            }
-        }
-
-        // Generate recommendations
-        if (newContext.stage === 'recommendation') {
-            // Filter products based on category
-            let filteredProducts = products.filter(p => p.category === newContext.category);
-
-            // Filter by budget if available
-            if (newContext.budget) {
-                if (newContext.budget.min && newContext.budget.max) {
-                    filteredProducts = filteredProducts.filter(p => p.price >= newContext.budget.min && p.price <= newContext.budget.max);
-                } else if (newContext.budget.max) {
-                    filteredProducts = filteredProducts.filter(p => p.price <= newContext.budget.max);
-                }
-            }
-
-            // Sort by relevance to preferences
-            if (newContext.preferences.length > 0) {
-                filteredProducts = filteredProducts.sort((a, b) => {
-                    let scoreA = 0;
-                    let scoreB = 0;
-
-                    // Simple scoring based on features and preferences
-                    newContext.preferences.forEach(pref => {
-                        if (a.features.some(f => f.toLowerCase().includes(pref.toLowerCase()))) scoreA += 1;
-                        if (b.features.some(f => f.toLowerCase().includes(pref.toLowerCase()))) scoreB += 1;
-                    });
-
-                    return scoreB - scoreA;
-                });
-            }
-
-            // Take top 3 recommendations
-            const recommendations = filteredProducts.slice(0, 3);
-
-            if (recommendations.length > 0) {
-                // Create recommendations message
-                response = `Based on your preferences, here are my top recommendations:`;
-
-                // Add recommendation card
+            // Add recommendations to chat
+            setTimeout(() => {
                 setMessages(prevMessages => [
                     ...prevMessages,
-                    { role: 'assistant', content: response },
-                    { role: 'assistant', content: '', recommendations }
+                    {
+                        role: 'assistant',
+                        content: 'Based on your preferences, here are my top recommendations:'
+                    },
+                    {
+                        role: 'assistant',
+                        content: '',
+                        recommendations
+                    }
                 ]);
 
-                // Reset context for new recommendations
+                // Reset context for new conversation
+                setProductContext({
+                    ...newContext,
+                    stage: 'feedback'
+                });
+
+                setIsTyping(false);
+            }, 1000);
+
+            return;
+        } else if (productContext.stage === 'feedback') {
+            // Handle feedback stage
+            if (lowercaseResponse.includes('new search') || lowercaseResponse.includes('start over')) {
                 newContext = {
                     category: null,
                     budget: null,
                     preferences: [],
-                    stage: 'feedback'
+                    stage: 'initial'
                 };
-
-                setProductContext(newContext);
-                setIsTyping(false);
-                return;
-            } else {
-                response = `I couldn't find any ${newContext.category} that match your criteria. Would you like to try with a different budget or category?`;
-                newContext.stage = 'initial';
             }
         }
 
-        // STAGE 4: Handle feedback
-        else if (productContext.stage === 'feedback') {
-            const positiveKeywords = ['like', 'good', 'great', 'excellent', 'perfect', 'love', 'nice', 'yes', 'thanks'];
-            const negativeKeywords = ['don\'t like', 'not good', 'too expensive', 'dislike', 'no', 'not what', 'different'];
-
-            const isPositive = positiveKeywords.some(keyword => lowercaseMessage.includes(keyword));
-            const isNegative = negativeKeywords.some(keyword => lowercaseMessage.includes(keyword));
-
-            if (isPositive) {
-                response = "I'm glad you like the recommendations! Is there anything specific you'd like to know about any of these products?";
-            } else if (isNegative) {
-                response = "I'm sorry these weren't quite right. Could you tell me what you're looking for differently, and I'll find better options?";
-                newContext.stage = 'initial';
-            } else {
-                // Check if it's a question about a specific product
-                const productNames = products.map(p => p.name.toLowerCase());
-                const mentionedProduct = productNames.find(name => lowercaseMessage.includes(name.toLowerCase()));
-
-                if (mentionedProduct) {
-                    const product = products.find(p => p.name.toLowerCase() === mentionedProduct);
-                    response = `The ${product.name} is a great choice! It features ${product.features.join(', ')}. It's particularly good for ${product.idealFor.join(', ')}. Is there anything specific you'd like to know about it?`;
-                } else {
-                    response = "Would you like to see more recommendations, or shall we refine your search criteria?";
-                }
-            }
-        }
-
+        // Update context
         setProductContext(newContext);
-        setMessages(prevMessages => [...prevMessages, { role: 'assistant', content: response }]);
+
+        // Add AI response to chat
+        setMessages(prevMessages => [...prevMessages, { role: 'assistant', content: aiResponse }]);
+
+        // Hide typing indicator
         setIsTyping(false);
+    };
+
+    // Function to generate recommendations based on context
+    const generateRecommendations = (context) => {
+        // Filter products based on category
+        let filteredProducts = products.filter(p => p.category === context.category);
+
+        // Filter by budget if available
+        if (context.budget) {
+            if (context.budget.min && context.budget.max) {
+                filteredProducts = filteredProducts.filter(p =>
+                    p.price >= context.budget.min && p.price <= context.budget.max
+                );
+            } else if (context.budget.max) {
+                filteredProducts = filteredProducts.filter(p => p.price <= context.budget.max);
+            }
+        }
+
+        // Simple preference matching - would be more sophisticated in a real app
+        if (context.preferences.length > 0) {
+            const preferencesText = context.preferences.join(' ').toLowerCase();
+
+            // Score products based on how well they match preferences
+            filteredProducts = filteredProducts.map(product => {
+                let score = 0;
+                // Check features
+                product.features.forEach(feature => {
+                    if (preferencesText.includes(feature.toLowerCase())) {
+                        score += 2;
+                    }
+                });
+
+                // Check idealFor
+                product.idealFor.forEach(idealFor => {
+                    if (preferencesText.includes(idealFor.toLowerCase())) {
+                        score += 1;
+                    }
+                });
+
+                return { ...product, score };
+            }).sort((a, b) => b.score - a.score || b.rating - a.rating);
+        }
+
+        // Take top 3 or fewer recommendations
+        return filteredProducts.slice(0, 3);
     };
 
     const handleSubmit = async (e) => {
