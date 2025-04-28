@@ -31,6 +31,7 @@
     const { useState, useRef, useEffect } = React;
 
     return () => {
+      // Basic state
       const [messages, setMessages] = useState([
         {
           role: 'assistant',
@@ -45,15 +46,24 @@
         preferences: [],
         stage: 'initial'
       });
-      // Track which questions have been asked to prevent loops
+
+      // Advanced state for more dynamic behavior
       const [askedQuestions, setAskedQuestions] = useState({
         budget: false,
         features: false
       });
+      const [searchHistory, setSearchHistory] = useState([]);
+      const [userPreferenceProfile, setUserPreferenceProfile] = useState({
+        priceConsciousness: 'medium', // low, medium, high
+        preferredBrands: [],
+        valuedFeatures: [],
+        lastSearched: null
+      });
+
       const messagesEndRef = useRef(null);
 
       // OpenAI API configuration
-      const OPENAI_API_KEY = "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";
+      const OPENAI_API_KEY = "";
       const API_BASE_URL = "https://api.openai.com/v1";
 
       // Sample product database
@@ -154,6 +164,424 @@
       useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, [messages]);
+
+      // Enhanced detection functions
+      const detectCategory = (message) => {
+        const lowercaseMessage = message.toLowerCase().trim();
+
+        // Immediate return for single-word category mentions
+        if (lowercaseMessage === 'laptop' ||
+                lowercaseMessage === 'laptops' ||
+                lowercaseMessage === 'computer' ||
+                lowercaseMessage === 'computers') {
+          return 'laptop';
+        }
+
+        if (lowercaseMessage === 'phone' ||
+                lowercaseMessage === 'phones' ||
+                lowercaseMessage === 'smartphone' ||
+                lowercaseMessage === 'smartphones' ||
+                lowercaseMessage === 'mobile' ||
+                lowercaseMessage === 'mobiles') {
+          return 'smartphone';
+        }
+
+        if (lowercaseMessage === 'headphone' ||
+                lowercaseMessage === 'headphones' ||
+                lowercaseMessage === 'earphone' ||
+                lowercaseMessage === 'earphones' ||
+                lowercaseMessage === 'earbuds' ||
+                lowercaseMessage === 'earbud' ||
+                lowercaseMessage === 'headset' ||
+                lowercaseMessage === 'headsets') {
+          return 'headphones';
+        }
+
+        // Continue with the rest of the original detection logic if no exact match
+        // Direct category detection
+        if (lowercaseMessage.includes('laptop') ||
+                lowercaseMessage.includes('notebook') ||
+                lowercaseMessage.includes('computer') ||
+                lowercaseMessage.includes('pc') ||
+                lowercaseMessage.includes('macbook')) {
+          return 'laptop';
+        }
+
+        if (lowercaseMessage.includes('phone') ||
+                lowercaseMessage.includes('smartphone') ||
+                lowercaseMessage.includes('mobile') ||
+                lowercaseMessage.includes('iphone') ||
+                lowercaseMessage.includes('android') ||
+                lowercaseMessage.includes('cell phone')) {
+          return 'smartphone';
+        }
+
+        if (lowercaseMessage.includes('headphone') ||
+                lowercaseMessage.includes('earphone') ||
+                lowercaseMessage.includes('earbuds') ||
+                lowercaseMessage.includes('headset') ||
+                lowercaseMessage.includes('airpods')) {
+          return 'headphones';
+        }
+
+        // Indirect category detection through brand names
+        const laptopBrands = ['dell', 'hp', 'lenovo', 'asus', 'acer', 'microsoft surface', 'macbook'];
+        const phoneBrands = ['iphone', 'samsung', 'google pixel', 'oneplus', 'xiaomi', 'huawei'];
+        const headphoneBrands = ['bose', 'sony', 'sennheiser', 'beats', 'airpods', 'jabra'];
+
+        for (const brand of laptopBrands) {
+          if (lowercaseMessage.includes(brand)) {
+            return 'laptop';
+          }
+        }
+
+        for (const brand of phoneBrands) {
+          if (lowercaseMessage.includes(brand)) {
+            return 'smartphone';
+          }
+        }
+
+        for (const brand of headphoneBrands) {
+          if (lowercaseMessage.includes(brand)) {
+            return 'headphones';
+          }
+        }
+
+        // Activity-based detection
+        if (lowercaseMessage.includes('coding') ||
+                lowercaseMessage.includes('programming') ||
+                lowercaseMessage.includes('work') ||
+                lowercaseMessage.includes('office') ||
+                lowercaseMessage.includes('study') ||
+                lowercaseMessage.includes('school')) {
+          return 'laptop';
+        }
+
+        if (lowercaseMessage.includes('call') ||
+                lowercaseMessage.includes('text') ||
+                lowercaseMessage.includes('camera') ||
+                lowercaseMessage.includes('photos') ||
+                lowercaseMessage.includes('social media')) {
+          return 'smartphone';
+        }
+
+        if (lowercaseMessage.includes('music') ||
+                lowercaseMessage.includes('audio') ||
+                lowercaseMessage.includes('sound') ||
+                lowercaseMessage.includes('listening') ||
+                lowercaseMessage.includes('noise cancelling') ||
+                lowercaseMessage.includes('wireless audio')) {
+          return 'headphones';
+        }
+
+        return null;
+      };
+
+      // Enhanced budget extraction
+      const extractBudget = (message) => {
+        const lowercaseMessage = message.toLowerCase();
+
+        // Handle numeric ranges with or without currency symbols
+        const rangeRegex = /\$?(\d+(?:[,.]\d+)?)\s*(?:-|to)\s*\$?(\d+(?:[,.]\d+)?)/i;
+        const rangeSeparators = ['-', 'to', 'and', 'between', 'from'];
+
+        // Check for explicit ranges
+        const rangeMatch = lowercaseMessage.match(rangeRegex);
+        if (rangeMatch) {
+          const min = parseFloat(rangeMatch[1].replace(/,/g, ''));
+          const max = parseFloat(rangeMatch[2].replace(/,/g, ''));
+          return { min, max };
+        }
+
+        // Common range expressions
+        for (const sep of rangeSeparators) {
+          if (lowercaseMessage.includes(sep)) {
+            const parts = lowercaseMessage.split(sep);
+            const numbers = [];
+
+            // Extract numbers from each part
+            for (const part of parts) {
+              const numMatch = part.match(/\$?(\d+(?:[,.]\d+)?)/);
+              if (numMatch) {
+                numbers.push(parseFloat(numMatch[1].replace(/,/g, '')));
+              }
+            }
+
+            // If we found two numbers, use them as min and max
+            if (numbers.length >= 2) {
+              return { min: Math.min(...numbers), max: Math.max(...numbers) };
+            }
+          }
+        }
+
+        // Check for single amount with modifiers
+        const singleValueRegex = /\$?(\d+(?:[,.]\d+)?)/;
+        const singleMatch = lowercaseMessage.match(singleValueRegex);
+
+        if (singleMatch) {
+          const value = parseFloat(singleMatch[1].replace(/,/g, ''));
+
+          // Check for "under", "less than", "at most", etc.
+          if (lowercaseMessage.includes('under') ||
+                  lowercaseMessage.includes('less than') ||
+                  lowercaseMessage.includes('at most') ||
+                  lowercaseMessage.includes('no more than') ||
+                  lowercaseMessage.includes('maximum') ||
+                  lowercaseMessage.includes('below')) {
+            return { max: value };
+          }
+
+          // Check for "over", "more than", "at least", etc.
+          if (lowercaseMessage.includes('over') ||
+                  lowercaseMessage.includes('more than') ||
+                  lowercaseMessage.includes('at least') ||
+                  lowercaseMessage.includes('minimum') ||
+                  lowercaseMessage.includes('above')) {
+            return { min: value };
+          }
+
+          // Default to max if just a single number
+          return { max: value };
+        }
+
+        // Check for common price bands expressed in words
+        if (lowercaseMessage.includes('cheap') ||
+                lowercaseMessage.includes('budget') ||
+                lowercaseMessage.includes('inexpensive') ||
+                lowercaseMessage.includes('affordable')) {
+
+          if (lowercaseMessage.includes('laptop')) {
+            return { max: 600 };
+          } else if (lowercaseMessage.includes('smartphone') || lowercaseMessage.includes('phone')) {
+            return { max: 300 };
+          } else if (lowercaseMessage.includes('headphone')) {
+            return { max: 100 };
+          } else {
+            return { max: 300 }; // Default affordable max
+          }
+        }
+
+        if (lowercaseMessage.includes('mid-range') ||
+                lowercaseMessage.includes('mid range') ||
+                lowercaseMessage.includes('reasonable')) {
+
+          if (lowercaseMessage.includes('laptop')) {
+            return { min: 600, max: 1200 };
+          } else if (lowercaseMessage.includes('smartphone') || lowercaseMessage.includes('phone')) {
+            return { min: 300, max: 700 };
+          } else if (lowercaseMessage.includes('headphone')) {
+            return { min: 100, max: 200 };
+          } else {
+            return { min: 300, max: 700 }; // Default mid-range
+          }
+        }
+
+        if (lowercaseMessage.includes('premium') ||
+                lowercaseMessage.includes('high-end') ||
+                lowercaseMessage.includes('high end') ||
+                lowercaseMessage.includes('top tier') ||
+                lowercaseMessage.includes('luxury')) {
+
+          if (lowercaseMessage.includes('laptop')) {
+            return { min: 1200 };
+          } else if (lowercaseMessage.includes('smartphone') || lowercaseMessage.includes('phone')) {
+            return { min: 700 };
+          } else if (lowercaseMessage.includes('headphone')) {
+            return { min: 200 };
+          } else {
+            return { min: 700 }; // Default premium min
+          }
+        }
+
+        return null;
+      };
+
+      // Feature extraction function
+      const extractFeatures = (message) => {
+        const lowercaseMessage = message.toLowerCase();
+        const features = [];
+
+        // Common feature keywords by category
+        const laptopFeatures = [
+          { keyword: 'battery', value: 'long battery life' },
+          { keyword: 'thin', value: 'thin and lightweight' },
+          { keyword: 'lightweight', value: 'thin and lightweight' },
+          { keyword: 'portab', value: 'portable' },
+          { keyword: 'gaming', value: 'gaming performance' },
+          { keyword: 'performance', value: 'high performance' },
+          { keyword: 'fast', value: 'high performance' },
+          { keyword: 'storage', value: 'large storage' },
+          { keyword: 'ram', value: 'high RAM' },
+          { keyword: 'display', value: 'high-quality display' },
+          { keyword: 'screen', value: 'high-quality display' },
+          { keyword: 'resolution', value: 'high-resolution display' },
+          { keyword: 'touch', value: 'touchscreen' },
+          { keyword: '4k', value: '4K display' },
+          { keyword: 'design', value: 'premium design' },
+          { keyword: 'professional', value: 'professional use' },
+          { keyword: 'student', value: 'student use' },
+          { keyword: 'work', value: 'work use' },
+          { keyword: 'video', value: 'video editing' },
+          { keyword: 'photo', value: 'photo editing' },
+          { keyword: 'edit', value: 'content creation' }
+        ];
+
+        const smartphoneFeatures = [
+          { keyword: 'battery', value: 'long battery life' },
+          { keyword: 'camera', value: 'high-quality camera' },
+          { keyword: 'photo', value: 'photography capabilities' },
+          { keyword: 'storage', value: 'large storage' },
+          { keyword: 'fast', value: 'fast performance' },
+          { keyword: 'speed', value: 'fast performance' },
+          { keyword: 'screen', value: 'high-quality display' },
+          { keyword: 'display', value: 'high-quality display' },
+          { keyword: 'design', value: 'premium design' },
+          { keyword: 'water', value: 'water resistance' },
+          { keyword: 'resistant', value: 'durability' },
+          { keyword: 'durable', value: 'durability' },
+          { keyword: 'gaming', value: 'mobile gaming' },
+          { keyword: 'wireless', value: 'wireless charging' },
+          { keyword: 'charging', value: 'fast charging' },
+          { keyword: '5g', value: '5G connectivity' }
+        ];
+
+        const headphoneFeatures = [
+          { keyword: 'noise', value: 'noise cancellation' },
+          { keyword: 'cancel', value: 'noise cancellation' },
+          { keyword: 'wireless', value: 'wireless' },
+          { keyword: 'bluetooth', value: 'wireless' },
+          { keyword: 'battery', value: 'long battery life' },
+          { keyword: 'bass', value: 'bass quality' },
+          { keyword: 'comfort', value: 'comfort' },
+          { keyword: 'sound', value: 'sound quality' },
+          { keyword: 'microphone', value: 'call quality' },
+          { keyword: 'mic', value: 'call quality' },
+          { keyword: 'call', value: 'call quality' },
+          { keyword: 'workout', value: 'exercise use' },
+          { keyword: 'exercise', value: 'exercise use' },
+          { keyword: 'water', value: 'water resistance' },
+          { keyword: 'resistant', value: 'durability' },
+          { keyword: 'durable', value: 'durability' }
+        ];
+
+        // Determine which feature set to use based on the message content
+        let featureSet = [];
+        if (lowercaseMessage.includes('laptop')) {
+          featureSet = laptopFeatures;
+        } else if (lowercaseMessage.includes('phone') || lowercaseMessage.includes('smartphone')) {
+          featureSet = smartphoneFeatures;
+        } else if (lowercaseMessage.includes('headphone') || lowercaseMessage.includes('earphone')) {
+          featureSet = headphoneFeatures;
+        } else {
+          // Combine all features if category is unclear
+          featureSet = [...laptopFeatures, ...smartphoneFeatures, ...headphoneFeatures];
+        }
+
+        // Check for each feature
+        for (const feature of featureSet) {
+          if (lowercaseMessage.includes(feature.keyword)) {
+            // Don't add duplicates
+            if (!features.includes(feature.value)) {
+              features.push(feature.value);
+            }
+          }
+        }
+
+        return features;
+      };
+
+      // Update user preference profile based on their behavior
+      const updateUserProfile = (context) => {
+        // Add the current context to search history
+        const newHistory = [...searchHistory, {
+          timestamp: Date.now(),
+          category: context.category,
+          budget: context.budget,
+          preferences: [...context.preferences]
+        }];
+
+        setSearchHistory(newHistory);
+
+        // Update user preference profile based on patterns
+        const newProfile = {...userPreferenceProfile};
+
+        // Update price consciousness based on budget patterns
+        if (context.budget) {
+          let budgetValue = context.budget.max;
+          if (context.budget.min) {
+            budgetValue = (context.budget.min + context.budget.max) / 2;
+          }
+
+          // Determine price consciousness relative to category
+          if (context.category === 'laptop' && budgetValue < 800) {
+            newProfile.priceConsciousness = 'high';
+          } else if (context.category === 'smartphone' && budgetValue < 400) {
+            newProfile.priceConsciousness = 'high';
+          } else if (context.category === 'headphones' && budgetValue < 100) {
+            newProfile.priceConsciousness = 'high';
+          } else if (context.category === 'laptop' && budgetValue > 1500) {
+            newProfile.priceConsciousness = 'low';
+          } else if (context.category === 'smartphone' && budgetValue > 800) {
+            newProfile.priceConsciousness = 'low';
+          } else if (context.category === 'headphones' && budgetValue > 250) {
+            newProfile.priceConsciousness = 'low';
+          }
+        }
+
+        // Extract valued features from preferences
+        if (context.preferences && context.preferences.length > 0) {
+          const preferencesText = context.preferences.join(' ').toLowerCase();
+
+          // Check for common valued features
+          const featureKeywords = [
+            'battery', 'camera', 'performance', 'storage', 'display',
+            'screen', 'design', 'lightweight', 'durability', 'sound',
+            'noise cancellation', 'wireless', 'fast charging'
+          ];
+
+          featureKeywords.forEach(keyword => {
+            if (preferencesText.includes(keyword) && !newProfile.valuedFeatures.includes(keyword)) {
+              newProfile.valuedFeatures.push(keyword);
+            }
+          });
+        }
+
+        // Update last searched category
+        newProfile.lastSearched = context.category;
+
+        setUserPreferenceProfile(newProfile);
+      };
+
+      // Enhanced AI prompt generation that incorporates user profile
+      const generatePersonalizedPrompt = (basePrompt, context, userProfile) => {
+        // Start with the base prompt
+        let enhancedPrompt = basePrompt;
+
+        // Add personalization layer based on user profile
+        if (userProfile.valuedFeatures.length > 0) {
+          enhancedPrompt += `\n\nBased on the user's previous interactions, they seem to value these features: ${userProfile.valuedFeatures.join(', ')}.`;
+        }
+
+        if (userProfile.priceConsciousness === 'high') {
+          enhancedPrompt += `\n\nThe user appears to be price-conscious, so emphasize value and affordability in your response.`;
+        } else if (userProfile.priceConsciousness === 'low') {
+          enhancedPrompt += `\n\nThe user appears to prioritize premium features over price, so emphasize quality and performance in your response.`;
+        }
+
+        // Add cross-category intelligence
+        if (userProfile.lastSearched && userProfile.lastSearched !== context.category) {
+          enhancedPrompt += `\n\nThe user previously searched for ${userProfile.lastSearched}s before looking at ${context.category}s. They might be looking for integration between these products.`;
+        }
+
+        // Add conversation style adaptation
+        if (context.preferences.some(pref => pref.length < 10)) {
+          enhancedPrompt += `\n\nThe user tends to give brief responses, so keep your response concise and to the point.`;
+        } else if (context.preferences.some(pref => pref.length > 50)) {
+          enhancedPrompt += `\n\nThe user provides detailed responses, so you can be more thorough in your explanations.`;
+        }
+
+        return enhancedPrompt;
+      };
 
       // Improved OpenAI API function with better error handling
       const callOpenAI = async (prompt, context) => {
@@ -256,16 +684,88 @@
         }
       };
 
-      // Improved process message function that's more resilient to API failures and avoids loops
+      // Enhanced recommendation generation
+      const generateRecommendations = (context) => {
+        // Filter products based on category
+        let filteredProducts = products.filter(p => p.category === context.category);
+
+        // Filter by budget if available
+        if (context.budget) {
+          if (context.budget.min && context.budget.max) {
+            filteredProducts = filteredProducts.filter(p =>
+                    p.price >= context.budget.min && p.price <= context.budget.max
+            );
+          } else if (context.budget.max) {
+            filteredProducts = filteredProducts.filter(p => p.price <= context.budget.max);
+          }
+        }
+
+        // Get relevant keywords from current preferences
+        const preferencesText = context.preferences.join(' ').toLowerCase();
+
+        // Include past user preferences if we're in a new search
+        let enhancedPreferencesText = preferencesText;
+        if (userPreferenceProfile.valuedFeatures.length > 0) {
+          enhancedPreferencesText += ' ' + userPreferenceProfile.valuedFeatures.join(' ');
+        }
+
+        // Dynamic scoring system
+        filteredProducts = filteredProducts.map(product => {
+          let score = 0;
+
+          // Check explicit features
+          product.features.forEach(feature => {
+            const featureLower = feature.toLowerCase();
+            // Higher weight for explicit preferences
+            if (preferencesText.includes(featureLower)) {
+              score += 2;
+            }
+            // Lower weight for implied preferences from past searches
+            else if (enhancedPreferencesText.includes(featureLower)) {
+              score += 0.5;
+            }
+          });
+
+          // Check idealFor matches
+          product.idealFor.forEach(idealFor => {
+            if (preferencesText.includes(idealFor.toLowerCase())) {
+              score += 1;
+            }
+          });
+          // Adjust score based on price consciousness
+          if (userPreferenceProfile.priceConsciousness === 'high') {
+            // For price-conscious users, lower prices get bonus points
+            score += (1 - (product.price / 2000)) * 2; // Simple scaling factor
+          }
+
+          return { ...product, score };
+        }).sort((a, b) => {
+          // Sort by score first, then by rating if scores are equal
+          if (b.score !== a.score) {
+            return b.score - a.score;
+          }
+          return b.rating - a.rating;
+        });
+
+        // Take top 3 recommendations
+        return filteredProducts.slice(0, 3);
+      };
+
+      // Improved process message function with advanced NLP and context awareness
       const processMessage = async (userMessage) => {
         // Add user message to chat
         setMessages(prevMessages => [...prevMessages, { role: 'user', content: userMessage }]);
 
-        // Simulate AI processing
+        // Show typing indicator
         setIsTyping(true);
 
         // Parse user input for intent
         const lowercaseMessage = userMessage.toLowerCase();
+        console.log("Processing message:", lowercaseMessage);
+
+        // CRITICAL FIX: Always detect category first, regardless of stage
+        const detectedCategory = detectCategory(userMessage);
+        console.log("Detected category:", detectedCategory);
 
         // Current context state for AI
         let newContext = { ...productContext };
@@ -273,202 +773,141 @@
         let aiPrompt = "";
         let response = "";
 
-        // Fix for the specific issue where the budget stage is skipped
-// In the processMessage function, modify the initial stage logic:
+        console.log("Current stage:", productContext.stage);
 
-// STAGE 1: Initial intent detection
-        if (productContext.stage === 'initial') {
-          // Check for product category
-          const categoryKeywords = {
-            'laptop': ['laptop', 'notebook', 'computer', 'pc', 'macbook'],
-            'smartphone': ['phone', 'smartphone', 'mobile', 'iphone', 'android', 'cell phone'],
-            'headphones': ['headphones', 'earbuds', 'headset', 'earphones', 'airpods']
-          };
+        // If a category is detected at ANY stage, prioritize this detection
+        if (detectedCategory) {
+          // If they explicitly mentioned a category, always assume they want to search for this
+          // regardless of what stage we're currently in
 
-          let detectedCategory = null;
-          Object.entries(categoryKeywords).forEach(([category, keywords]) => {
-            if (keywords.some(keyword => lowercaseMessage.includes(keyword))) {
-              detectedCategory = category;
-            }
-          });
+          // Only reset if the category is different or we're in feedback stage
+          if (detectedCategory !== productContext.category || productContext.stage === 'feedback') {
+            newContext = {
+              category: detectedCategory,
+              budget: null,
+              preferences: [],
+              stage: 'budget'
+            };
 
-          if (detectedCategory) {
-            // Set category and ENSURE we move to budget stage
-            newContext.category = detectedCategory;
-            newContext.stage = 'budget'; // Make sure this is set to 'budget' not 'preferences'
-
-            // Reset asked questions for new conversation
+            // Reset asked questions for new search
             setAskedQuestions({budget: false, features: false});
 
-            // Use AI to respond with a budget question
-            useAI = true;
-            aiPrompt = `The user is looking for a ${detectedCategory}. Ask them specifically about their budget range for this purchase. For example: "What's your budget for this ${detectedCategory}?" or "How much are you looking to spend on this ${detectedCategory}?"`;
-
-            // If API fails, use a backup response that explicitly asks about budget
             response = `Great! I'll help you find the perfect ${detectedCategory}. What's your budget range for this purchase?`;
-          } else {
-            // Use AI to understand the request better
-            useAI = true;
-            aiPrompt = `The user said: "${userMessage}". They might be looking for a tech product. Try to determine what category of product they're looking for (laptop, smartphone, or headphones). If unclear, ask them to specify what type of tech product they need.`;
+            useAI = false;
+
+            // Update context, add response, and exit early
+            setProductContext(newContext);
+            setMessages(prevMessages => [...prevMessages, { role: 'assistant', content: response }]);
+            setIsTyping(false);
+            return;
           }
         }
 
-// Then make sure the "budget" stage properly transitions to "preferences"
-// and doesn't skip directly to "recommendation"
+        // STAGE 1: Initial intent detection
+        if (productContext.stage === 'initial') {
+          // We already checked for category above, so if we're here, no category was detected
 
-// Improved budget detection in the budget stage
+          // Try to extract features even without category
+          const extractedFeatures = extractFeatures(userMessage);
+          if (extractedFeatures.length > 0) {
+            // Store these for later use when category is determined
+            newContext.preferences = [...productContext.preferences, ...extractedFeatures];
+          }
+
+          // Use AI to understand the request better
+          useAI = true;
+          aiPrompt = `The user said: "${userMessage}". They might be looking for a tech product. Try to determine what category of product they're looking for (laptop, smartphone, or headphones). If unclear, ask them to specify what type of tech product they need.`;
+        }
+
+        // STAGE 2: Budget detection
         else if (productContext.stage === 'budget') {
-          // Extract budget information with improved pattern matching
-          const budgetRegex = /\$?(\d+)(?:\s*-\s*\$?(\d+))?/;
-          const budgetMatch = lowercaseMessage.match(budgetRegex);
+          // Extract budget
+          const extractedBudget = extractBudget(userMessage);
+          console.log("Extracted budget:", extractedBudget);
 
-          // Also check for budget keywords
-          const hasBudgetKeywords = lowercaseMessage.includes('budget') ||
-                  lowercaseMessage.includes('price') ||
-                  lowercaseMessage.includes('cost') ||
-                  lowercaseMessage.includes('spend') ||
-                  lowercaseMessage.includes('dollar');
+          if (extractedBudget) {
+            // Set budget and move to preferences
+            newContext.budget = extractedBudget;
+            newContext.stage = 'preferences';
 
-          // Debug
-          console.log("Checking budget in:", lowercaseMessage);
-          console.log("Budget match:", budgetMatch);
-
-          if (budgetMatch) {
-            console.log("Budget match found:", budgetMatch);
-            // Extract budget from regex match
-            if (budgetMatch[2]) {
-              // Range provided
-              const minBudget = parseInt(budgetMatch[1]);
-              const maxBudget = parseInt(budgetMatch[2]);
-              newContext.budget = { min: minBudget, max: maxBudget };
-              console.log(`Budget range set: $${minBudget}-$${maxBudget}`);
-            } else {
-              // Single value provided, treat as maximum
-              const maxBudget = parseInt(budgetMatch[1]);
-              newContext.budget = { max: maxBudget };
-              console.log(`Budget max set: $${maxBudget}`);
+            // Extract any features mentioned along with budget
+            const extractedFeatures = extractFeatures(userMessage);
+            if (extractedFeatures.length > 0) {
+              newContext.preferences = [...newContext.preferences, ...extractedFeatures];
             }
 
-            // IMPORTANT: Always move to preferences stage when budget is detected
-            newContext.stage = 'preferences';
-            console.log("Moving to preferences stage");
-
-            // Use AI for response
+            // Use AI to ask about features
             useAI = true;
             aiPrompt = `The user has specified a budget of ${newContext.budget.min ? `$${newContext.budget.min} to $${newContext.budget.max}` : `up to $${newContext.budget.max}`} for a ${newContext.category}. Ask them about what features or qualities are important to them.`;
 
-            // Fallback response if AI fails
             response = `Thanks for sharing your budget. What features are most important to you in a ${newContext.category}?`;
           }
-          // Check if they've already been asked about budget and are mentioning budget terms
-          else if (askedQuestions.budget && hasBudgetKeywords) {
-            console.log("User mentioned budget terms but no specific amount");
-            // Set a reasonable default if they're talking about budget but not giving specific numbers
-            newContext.budget = { max: 500 }; // Default budget
+          // If no budget detected but we already asked once
+          else if (askedQuestions.budget) {
+            // Set a reasonable default budget based on category
+            if (newContext.category === 'laptop') {
+              newContext.budget = { min: 600, max: 1500 };
+            } else if (newContext.category === 'smartphone') {
+              newContext.budget = { min: 300, max: 800 };
+            } else if (newContext.category === 'headphones') {
+              newContext.budget = { min: 80, max: 250 };
+            } else {
+              newContext.budget = { max: 500 }; // Generic fallback
+            }
+
+            console.log(`Using default budget for ${newContext.category}: ${JSON.stringify(newContext.budget)}`);
             newContext.stage = 'preferences';
 
             useAI = true;
-            aiPrompt = `The user mentioned budget but didn't specify an exact amount for their ${newContext.category}. Ask them what features they're looking for.`;
+            aiPrompt = `The user didn't specify an exact budget for their ${newContext.category}. Ask them what features they're looking for.`;
 
-            response = `Thanks for that information. What specific features are you looking for in a ${newContext.category}?`;
-          }
-          // Allow switching product category from budget stage
-          else if (lowercaseMessage.includes('laptop') ||
-                  lowercaseMessage.includes('phone') ||
-                  lowercaseMessage.includes('headphone')) {
-            console.log("User wants to switch product category");
-
-            // Detect new category
-            if (lowercaseMessage.includes('laptop')) {
-              newContext.category = 'laptop';
-            } else if (lowercaseMessage.includes('phone')) {
-              newContext.category = 'smartphone';
-            } else if (lowercaseMessage.includes('headphone') || lowercaseMessage.includes('earphone')) {
-              newContext.category = 'headphones';
-            }
-
-            // Keep in budget stage with new category
-            newContext.stage = 'budget';
-
-            useAI = true;
-            aiPrompt = `The user now wants to look for a ${newContext.category} instead. Ask them about their budget for this ${newContext.category}.`;
-
-            response = `Great! I'll help you find the perfect ${newContext.category}. What's your budget range for this purchase?`;
+            response = `I'll use a standard budget range for ${newContext.category}s. What specific features are you looking for?`;
           }
           else {
             // First time asking about budget
             setAskedQuestions(prev => ({...prev, budget: true}));
 
             useAI = true;
-            aiPrompt = `The user said: "${userMessage}" when asked about their budget for a ${newContext.category}. Ask them again for a specific budget range with dollar amounts.`;
+            aiPrompt = `The user is looking for a ${newContext.category}. Ask them for a specific budget range.`;
 
             response = `I need a specific budget range to help you find the right ${newContext.category}. Could you please give me an amount, like "$100-$200" or "up to $300"?`;
           }
         }
-        // STAGE 3: Preferences collection with loop prevention
+
+        // STAGE 3: Preferences collection
         else if (productContext.stage === 'preferences') {
           // Set asked flag
           setAskedQuestions(prev => ({...prev, features: true}));
 
-          // Already asked about features, move to recommendation stage regardless of input
-          // Store any preferences mentioned
-          newContext.preferences = [...productContext.preferences, userMessage];
+          // Extract features from user message
+          const extractedFeatures = extractFeatures(userMessage);
+          if (extractedFeatures.length > 0) {
+            console.log("Features extracted:", extractedFeatures);
+            newContext.preferences = [...productContext.preferences, ...extractedFeatures];
+          } else {
+            // If no specific features detected, store the whole message
+            newContext.preferences = [...productContext.preferences, userMessage];
+          }
+
           newContext.stage = 'recommendation';
 
           // Use AI to understand preferences
           useAI = true;
-          aiPrompt = `The user is looking for a ${newContext.category} with a budget of ${newContext.budget.min ? `$${newContext.budget.min}-$${newContext.budget.max}` : `up to $${newContext.budget.max}`}. They said: "${userMessage}" about their preferences. Extract key features they're looking for and tell them you'll find some recommendations.`;
+          const basePrompt = `The user is looking for a ${newContext.category} with a budget of ${newContext.budget.min ? `$${newContext.budget.min}-$${newContext.budget.max}` : `up to $${newContext.budget.max}`}. They said: "${userMessage}" about their preferences. Extract key features they're looking for and tell them you'll find some recommendations.`;
+          aiPrompt = generatePersonalizedPrompt(basePrompt, newContext, userPreferenceProfile);
 
           // Wait for AI response before generating recommendations
           response = await callOpenAI(aiPrompt, newContext);
           setMessages(prevMessages => [...prevMessages, { role: 'assistant', content: response }]);
 
-          // Filter products based on category
-          let filteredProducts = products.filter(p => p.category === newContext.category);
+          console.log("Generating recommendations for context:", newContext);
 
-          // Filter by budget if available
-          if (newContext.budget) {
-            if (newContext.budget.min && newContext.budget.max) {
-              filteredProducts = filteredProducts.filter(p => p.price >= newContext.budget.min && p.price <= newContext.budget.max);
-            } else if (newContext.budget.max) {
-              filteredProducts = filteredProducts.filter(p => p.price <= newContext.budget.max);
-            }
-          }
+          // Update user preference profile before generating recommendations
+          updateUserProfile(newContext);
 
-          // Get relevant keywords from user preferences
-          const preferencesText = newContext.preferences.join(' ').toLowerCase();
-
-          // Score products based on how well they match preferences
-          filteredProducts = filteredProducts.map(product => {
-            let score = 0;
-
-            // Check features
-            product.features.forEach(feature => {
-              const featureLower = feature.toLowerCase();
-              if (preferencesText.includes(featureLower)) {
-                // Higher score for exact matches
-                score += 2;
-              }
-            });
-
-            // Check idealFor
-            product.idealFor.forEach(idealFor => {
-              if (preferencesText.includes(idealFor.toLowerCase())) {
-                score += 1;
-              }
-            });
-
-            return { ...product, score };
-          }).sort((a, b) => {
-            // Sort by score first, then by rating if scores are equal
-            if (b.score !== a.score) {
-              return b.score - a.score;
-            }
-            return b.rating - a.rating;
-          });
-
-          // Take top 3 recommendations
-          const recommendations = filteredProducts.slice(0, 3);
+          // Generate and filter recommendations
+          const recommendations = generateRecommendations(newContext);
+          console.log("Generated recommendations:", recommendations);
 
           if (recommendations.length > 0) {
             // Create recommendations message
@@ -489,7 +928,7 @@
               // Also reset asked questions for new conversation
               setAskedQuestions({budget: false, features: false});
               setIsTyping(false);
-            }, 2000); // Delay to simulate processing time
+            }, 1000); // Shorter delay for better UX
 
             return;
           } else {
@@ -500,14 +939,25 @@
             useAI = false;
           }
         }
+
         // STAGE 4: Handle feedback
         else if (productContext.stage === 'feedback') {
+          // Category detection was already handled at the beginning
+          // Here we handle other feedback cases
+
           // Check for request to start over
           if (lowercaseMessage.includes('new search') ||
                   lowercaseMessage.includes('start over') ||
                   lowercaseMessage.includes('different') ||
-                  lowercaseMessage.includes('something else')) {
+                  lowercaseMessage.includes('something else') ||
+                  lowercaseMessage.includes('look for') ||
+                  lowercaseMessage.includes('another') ||
+                  lowercaseMessage === 'no' ||
+                  lowercaseMessage === 'nope' ||
+                  lowercaseMessage === 'not really' ||
+                  lowercaseMessage === 'no thanks') {
 
+            // Start a new search
             newContext = {
               category: null,
               budget: null,
@@ -518,12 +968,16 @@
             // Reset asked questions for new search
             setAskedQuestions({budget: false, features: false});
 
+            // Generic start over
             response = "I'd be happy to help you find something else! What type of product are you looking for?";
             useAI = false;
           } else {
-            // Use AI to respond to feedback
+            // This is a normal feedback question or comment
             useAI = true;
             aiPrompt = `The user said: "${userMessage}" after receiving product recommendations. Respond to their feedback or answer questions about the recommended products. If they ask for more specific information, suggest they could refine their search criteria.`;
+
+            // Provide a fallback that DOESN'T repeat the same message
+            response = "Thanks for your feedback. Is there anything else you'd like to know about today?";
           }
         }
 
@@ -555,8 +1009,8 @@
               await processMessage("My budget is around $1000-1500");
               setTimeout(async () => {
                 await processMessage("I need something with good battery life and powerful enough for video editing");
-              }, 3000);
-            }, 3000);
+              }, 1500);
+            }, 1500);
             break;
           case 'phone':
             await processMessage("Looking for a new smartphone");
@@ -564,8 +1018,8 @@
               await processMessage("I can spend up to $800");
               setTimeout(async () => {
                 await processMessage("I really care about camera quality and battery life");
-              }, 3000);
-            }, 3000);
+              }, 1500);
+            }, 1500);
             break;
           case 'headphones':
             await processMessage("I want wireless headphones");
@@ -573,8 +1027,8 @@
               await processMessage("Under $200 please");
               setTimeout(async () => {
                 await processMessage("Noise cancellation would be nice for my commute");
-              }, 3000);
-            }, 3000);
+              }, 1500);
+            }, 1500);
             break;
         }
       };
@@ -586,6 +1040,19 @@
                   <div className="bg-blue-600 text-white p-4 shadow-md">
                     <h1 className="text-2xl font-bold">Product AI Assistant</h1>
                     <p className="text-sm opacity-90">Ask me about tech products and I'll help you find the perfect match using AI</p>
+                  </div>
+
+                  {/* Debug panel for development - comment out for production */}
+                  <div className="bg-gray-800 text-xs text-gray-300 p-2">
+                    <span>Category: {productContext.category || 'None'}</span>
+                    <span className="ml-3">Budget: {productContext.budget ?
+                            (productContext.budget.min ?
+                                    `$${productContext.budget.min}-$${productContext.budget.max}` :
+                                    `$${productContext.budget.max}`) :
+                            'None'}
+              </span>
+                    <span className="ml-3">Stage: {productContext.stage}</span>
+                    <span className="ml-3">Prefs: {productContext.preferences.length}</span>
                   </div>
 
                   {/* Demo buttons */}
